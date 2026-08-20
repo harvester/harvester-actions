@@ -1,0 +1,114 @@
+# This GitHub action install the slsactl CLI, making it available for
+# other steps within an GitHub workflow to refer to it.
+#
+# Reference usage:
+#    steps:
+#      ...
+#      - uses: rancherlabs/slsactl/actions/install-slsactl@main
+
+name: install-slsactl
+description: This GitHub action install the slsactl CLI, making it available for other steps within an GitHub workflow to refer to it.
+
+inputs:
+  version:
+    description: |
+      The slsactl version to be installed.
+    required: false
+    default: ''
+    type: string
+
+runs:
+  using: composite
+
+  steps:
+  - name: Latest version check
+    id: version
+    shell: bash
+    run: |
+      if [[ "${VERSION}" == "latest" ]]; then
+        echo "::warning title=Using the latest version is deprecated::Using the 'latest' version will no longer be supported, please remove it from your workflow and use the default version instead."
+      fi
+      if [[ "${VERSION}" == "latest" ]] || [[ "${VERSION}" == "" ]] || [[ -z "${VERSION}" ]]; then
+        VERSION="v0.1.30"
+      fi
+      echo "version=${VERSION}" >> $GITHUB_OUTPUT
+    env:
+      VERSION: ${{ inputs.version }}
+
+
+  - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+    if: runner.os == 'Windows'
+    with:
+      go-version: 'stable'
+
+  - name: Install slsactl with go install
+    if: runner.os == 'Windows'
+    shell: bash
+    run: |
+      go install github.com/rancherlabs/slsactl@${VERSION}
+    env:
+      VERSION: ${{ steps.version.outputs.version }}
+
+  - name: Install Cosign
+    uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    if: runner.os == 'Linux'
+
+  - name: Install slsactl from gh release
+    if: runner.os == 'Linux'
+    shell: bash
+
+    run: |
+      set -x
+
+      if [[ "${VERSION}" =~ ^v ]]; then
+        echo "Downloading checksum file and signatures for release ${VERSION}"
+        curl --retry 3 --retry-connrefused -LO "https://${REPO}/releases/download/${VERSION}/slsactl_${VERSION#v}_checksums.txt.sigstore.json"
+        curl --retry 3 --retry-connrefused -LO "https://${REPO}/releases/download/${VERSION}/slsactl_${VERSION#v}_checksums.txt"
+
+        cosign verify-blob \
+            --certificate-identity "https://${REPO}/.github/workflows/release.yml@refs/tags/${VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --new-bundle-format=true \
+            --bundle "slsactl_${VERSION#v}_checksums.txt.sigstore.json" "slsactl_${VERSION#v}_checksums.txt"
+
+        OS="linux"
+        if [[ ${RUNNER_OS} != "Linux" ]]; then
+            echo "Unsupported OS: ${RUNNER_OS}"
+            exit 1
+        fi
+
+        ARCH=""
+        if [[ $(uname -m) == "x86_64" ]]; then
+            ARCH=amd64
+        fi
+        if [[ $(uname -m) == "aarch64" ]]; then
+            ARCH=arm64
+        fi
+
+        FILE="slsactl_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+
+        echo "Installing ${FILE}"
+        curl -LO "https://${REPO}/releases/download/${VERSION}/${FILE}"
+        grep "${FILE}" "slsactl_${VERSION#v}_checksums.txt" | sha256sum -c
+        tar -xf "${FILE}" slsactl
+      else
+        echo 'Version is not "latest" nor starts with "v". Fallback to go install with commit ID.'
+        GOBIN=$(pwd) go install "github.com/rancherlabs/slsactl@${VERSION}"
+      fi
+
+      if sudo -l &> /dev/null; then
+        sudo install -m 755 slsactl /usr/local/bin/slsactl
+      else
+        install -m 755 slsactl /usr/local/bin/slsactl
+      fi
+      
+      rm -f "slsactl_${VERSION#v}_checksums.txt" "slsactl_${VERSION#v}_checksums.txt.sigstore.json" "${FILE}" slsactl
+    env:
+      VERSION: ${{ steps.version.outputs.version }}
+      REPO: github.com/bk201-org/slsactl
+
+  - name: Print version
+    shell: bash
+    run: |
+      echo "slsactl installed:"
+      slsactl version
