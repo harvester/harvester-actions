@@ -37,6 +37,10 @@ inputs:
     description: 'Registry used in the signed image identity; defaults to the destination registry'
     required: false
     default: ''
+  sbom:
+    description: 'Generate an SBOM attestation; disable for images whose SBOM exceeds the BuildKit 40MiB attestation size limit'
+    required: false
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -75,7 +79,7 @@ runs:
         push: true
         tags: ${{ inputs.registry }}/${{ inputs.repository }}/${{ inputs.image }}:${{ inputs.tag }}
         provenance: true
-        sbom: true
+        sbom: ${{ inputs.sbom }}
         cache-from: type=gha,scope=${{ steps.config.outputs.cache-scope }}
         cache-to: type=gha,mode=max,scope=${{ steps.config.outputs.cache-scope }}
 
