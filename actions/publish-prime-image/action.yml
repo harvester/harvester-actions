@@ -64,9 +64,9 @@ runs:
 
     # temporary workaround until we add harvester mappings in rancher/slsactl
     - name: Install slsactl
-      uses: $/actions/install-slsactl
+      uses: rancherlabs/slsactl/actions/install-slsactl@22b4f4bf17657fc9275fb914c4179257f20c898a
       with:
-        version: v0.2.0
+        version: v0.1.37
 
     - name: Build and push prime image
       id: push
